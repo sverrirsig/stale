@@ -21,3 +21,4 @@ build/
 
 # Release artifacts
 dist/
+.build-release-diag/
