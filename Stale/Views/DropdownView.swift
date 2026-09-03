@@ -236,6 +236,15 @@ private struct MenuBarWindowFitter: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView { NSView(frame: .zero) }
 
     func updateNSView(_ view: NSView, context: Context) {
+        shrinkToFit(view, passesLeft: 4)
+    }
+
+    /// One resize is not always enough: `fittingSize` can still report the pre-layout height on
+    /// the first pass, which leaves a sliver of dead space behind. Re-check after each resize and
+    /// stop as soon as the height stops changing. Bounded so a disagreement between AppKit and
+    /// SwiftUI can never spin.
+    private func shrinkToFit(_ view: NSView, passesLeft: Int) {
+        guard passesLeft > 0 else { return }
         // No window during the first update pass, and SwiftUI is mid-layout; settle first.
         DispatchQueue.main.async {
             guard let window = view.window, let content = window.contentView else { return }
@@ -247,6 +256,8 @@ private struct MenuBarWindowFitter: NSViewRepresentable {
             var frame = window.frame
             frame.origin.y = top - frame.height
             window.setFrame(frame, display: true)
+
+            shrinkToFit(view, passesLeft: passesLeft - 1)
         }
     }
 }
