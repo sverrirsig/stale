@@ -16,6 +16,9 @@ been rotting. Most PR tools show what's new; Stale shows what you've been ignori
 
 ## Install
 
+Requires **macOS 14 (Sonoma) or later**. Universal binary, Apple Silicon and Intel. The app is
+signed with a Developer ID and notarized by Apple, so it opens with a normal double-click.
+
 1. Download the latest `Stale-x.y.z.dmg` from [Releases](../../releases/latest) and drag Stale to Applications.
 2. Make sure the [GitHub CLI](https://cli.github.com) is signed in: `brew install gh && gh auth login`.
 3. Open Stale, click the clock in the menu bar → **Settings** → **Sign in with GitHub CLI**.
@@ -25,6 +28,22 @@ there are no tokens to create and no Keychain prompts. `gh auth logout` signs St
 
 Don't use the GitHub CLI? Paste a classic personal access token with the `repo` scope
 (plus `read:org` for organization repos) instead. Pasted tokens are kept in the macOS Keychain.
+
+## What it accesses
+
+Stale talks to exactly one host: the GitHub API — `api.github.com`, or your Enterprise Server
+if you change the API base. No telemetry, no analytics, no other network calls.
+
+- **GitHub CLI sign-in** reuses the token `gh` already holds. Stale runs `gh auth token` on each
+  refresh and never writes it to disk, so whatever scopes your `gh` login has are the scopes
+  Stale can use. `gh auth logout` signs Stale out too.
+- **Pasted tokens** are stored in your login Keychain as *Stale – GitHub token*, and nowhere else.
+- **Cached PR data** — titles, repo names, numbers, timestamps — is written unencrypted to
+  `~/Library/Application Support/Stale/pull-requests.json` so the dropdown is populated instantly
+  on launch and stays useful while offline. No token is ever written to it; delete the file to
+  clear it.
+- If your organization enforces **SAML SSO**, a classic PAT has to be SSO-authorized for that org
+  or its pull requests come back empty with no visible error. The GitHub CLI path avoids this.
 
 ## Settings
 

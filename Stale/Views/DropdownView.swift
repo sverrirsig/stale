@@ -10,6 +10,9 @@ struct DropdownView: View {
     /// A ScrollView has no useful intrinsic height inside a MenuBarExtra window.
     @State private var listContentHeight: CGFloat = 0
 
+    /// Measured height of the whole popover, used to trigger a window re-fit.
+    @State private var rootHeight: CGFloat = 0
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -20,6 +23,12 @@ struct DropdownView: View {
             footer
         }
         .frame(width: 380)
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.height
+        } action: { height in
+            rootHeight = height
+        }
+        .background(MenuBarWindowFitter(contentHeight: rootHeight))
     }
 
     // MARK: - Header
@@ -209,5 +218,35 @@ struct DropdownView: View {
         .controlSize(.small)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+}
+
+
+/// `MenuBarExtra(.window)` grows its popover to fit new content but never shrinks it back,
+/// so hiding an organisation — or merging a batch of PRs — leaves the window padded with
+/// dead space around a now-short list. Nudge the hosting window to re-fit when the content
+/// gets shorter, pinning the top edge so the popover stays anchored under the menu bar.
+///
+/// Deliberately shrink-only: SwiftUI already handles growth correctly, and resizing in both
+/// directions risks fighting its layout pass.
+private struct MenuBarWindowFitter: NSViewRepresentable {
+    /// Not read directly — its only job is to make SwiftUI re-run `updateNSView` on resize.
+    let contentHeight: CGFloat
+
+    func makeNSView(context: Context) -> NSView { NSView(frame: .zero) }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        // No window during the first update pass, and SwiftUI is mid-layout; settle first.
+        DispatchQueue.main.async {
+            guard let window = view.window, let content = window.contentView else { return }
+            let fitting = content.fittingSize
+            guard fitting.height > 0, fitting.height < content.frame.height - 0.5 else { return }
+
+            let top = window.frame.maxY
+            window.setContentSize(fitting)
+            var frame = window.frame
+            frame.origin.y = top - frame.height
+            window.setFrame(frame, display: true)
+        }
     }
 }

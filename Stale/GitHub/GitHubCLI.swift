@@ -26,9 +26,11 @@ enum GitHubCLI {
     private static let candidatePaths = [
         "/opt/homebrew/bin/gh",
         "/usr/local/bin/gh",
+        "/opt/local/bin/gh",
         "/usr/bin/gh",
         "/run/current-system/sw/bin/gh",
         NSHomeDirectory() + "/.nix-profile/bin/gh",
+        NSHomeDirectory() + "/.local/bin/gh",
     ]
 
     static func locate() -> URL? {
