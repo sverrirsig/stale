@@ -1,0 +1,16 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build (Debug, unsigned)
+        run: |
+          xcodebuild -project Stale.xcodeproj -scheme Stale -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO -quiet build

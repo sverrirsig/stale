@@ -1,0 +1,67 @@
+# Cuts a release whenever MARKETING_VERSION in Version.xcconfig changes on main.
+# Builds, signs with Developer ID, notarizes, packages a DMG and publishes a GitHub Release.
+# One-time setup of the secrets is described in docs/RELEASING.md.
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths: [Version.xcconfig]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version
+        id: version
+        run: |
+          VERSION="$(sed -n 's/^MARKETING_VERSION *= *//p' Version.xcconfig | tr -d '[:space:]')"
+          [[ -n "$VERSION" ]] || { echo "MARKETING_VERSION not found in Version.xcconfig"; exit 1; }
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release v$VERSION already exists; nothing to do."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Import Developer ID certificate
+        if: steps.version.outputs.exists != 'true'
+        env:
+          CERT_P12_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_P12 }}
+          CERT_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/release.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          echo "$CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -P "$CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          rm "$RUNNER_TEMP/cert.p12"
+          security find-identity -v -p codesigning "$KEYCHAIN"
+
+      - name: Build, sign, notarize and package
+        if: steps.version.outputs.exists != 'true'
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: scripts/release.sh "${{ steps.version.outputs.version }}"
+
+      - name: Publish GitHub Release
+        if: steps.version.outputs.exists != 'true'
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          gh release create "v$VERSION" "dist/Stale-$VERSION.dmg" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Stale $VERSION" \
+            --generate-notes
