@@ -57,7 +57,7 @@ struct PRRowView: View {
                 }
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 7)
+            .padding(.vertical, 6)
             .background(isHovering ? Color.primary.opacity(0.07) : .clear)
             .contentShape(Rectangle())
         }

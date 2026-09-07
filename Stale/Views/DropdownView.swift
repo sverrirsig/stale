@@ -108,7 +108,6 @@ struct DropdownView: View {
                             }
                         }
                     }
-                    .padding(.bottom, 4)
                 }
                 .scrollBounceBehavior(.basedOnSize)
             }
