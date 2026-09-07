@@ -16,6 +16,7 @@ struct DropdownView: View {
             footer
         }
         .frame(width: 380)
+        .background(PopoverTopAnchor())
     }
 
     // MARK: - Header
@@ -226,5 +227,62 @@ private struct ContentHeightCappedLayout: Layout {
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         subviews.first?.place(at: bounds.origin, anchor: .topLeading, proposal: ProposedViewSize(bounds.size))
+    }
+}
+
+/// Keeps the popover hanging from the menu bar when its content changes height.
+///
+/// `MenuBarExtra(.window)` resizes its window around the centre, so when the list gets
+/// shorter (hiding an organisation, PRs merging) the top edge drops by half the change and
+/// the popover floats below the menu bar with nothing above it. Growth is clamped by the
+/// screen so it looks fine; shrinking is not. Whenever the window changes height while it is
+/// on screen, put the top edge back where it was.
+///
+/// Repositioning on show (a different screen, the status item moving) arrives as a move with
+/// the height unchanged, so it passes through untouched.
+private struct PopoverTopAnchor: NSViewRepresentable {
+    func makeNSView(context: Context) -> AnchorView { AnchorView() }
+    func updateNSView(_ view: AnchorView, context: Context) {}
+
+    final class AnchorView: NSView {
+        /// The window frame at the last notification, and whether the window was visible then.
+        private var lastFrame: NSRect?
+        private var lastVisible = false
+        private var observedWindow: NSWindow?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let observedWindow {
+                NotificationCenter.default.removeObserver(self, name: nil, object: observedWindow)
+            }
+            observedWindow = window
+            guard let window else { return }
+            for name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification,
+                         NSWindow.didChangeOcclusionStateNotification, NSWindow.didBecomeKeyNotification] {
+                NotificationCenter.default.addObserver(self, selector: #selector(windowChanged), name: name, object: window)
+            }
+            record(window)
+        }
+
+        deinit {
+            NotificationCenter.default.removeObserver(self)
+        }
+
+        @objc private func windowChanged(_ note: Notification) {
+            guard let window, window == note.object as? NSWindow else { return }
+            defer { record(window) }
+            guard let last = lastFrame, lastVisible, window.isVisible else { return }
+            var frame = window.frame
+            let heightChanged = abs(frame.height - last.height) > 0.5
+            let topMoved = abs(frame.maxY - last.maxY) > 0.5
+            guard heightChanged, topMoved else { return }
+            frame.origin.y = last.maxY - frame.height
+            window.setFrame(frame, display: true)
+        }
+
+        private func record(_ window: NSWindow) {
+            lastFrame = window.frame
+            lastVisible = window.isVisible
+        }
     }
 }
