@@ -6,10 +6,6 @@ struct DropdownView: View {
     @Environment(SettingsStore.self) private var settings
     @Environment(\.openSettings) private var openSettings
 
-    /// Measured height of the PR list content, so the scroll view can be sized explicitly.
-    /// A ScrollView has no useful intrinsic height inside a MenuBarExtra window.
-    @State private var listContentHeight: CGFloat = 0
-
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -98,23 +94,24 @@ struct DropdownView: View {
                 )
             }
         } else {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(store.sections, id: \.tier) { section in
-                        sectionHeader(section.tier, count: section.pullRequests.count)
-                        ForEach(section.pullRequests) { pr in
-                            PRRowView(pullRequest: pr, store: store)
+            // The MenuBarExtra window sizes itself from this view's ideal height, so the list
+            // must report a definite height in the same layout pass as everything else. The
+            // layout below measures the rows and caps them, with no measure -> state -> re-layout
+            // round trip for the window to catch mid-settle.
+            ContentHeightCappedLayout(maxHeight: maxListHeight) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(store.sections, id: \.tier) { section in
+                            sectionHeader(section.tier, count: section.pullRequests.count)
+                            ForEach(section.pullRequests) { pr in
+                                PRRowView(pullRequest: pr, store: store)
+                            }
                         }
                     }
+                    .padding(.bottom, 4)
                 }
-                .padding(.bottom, 4)
-                .onGeometryChange(for: CGFloat.self) { proxy in
-                    proxy.size.height
-                } action: { height in
-                    listContentHeight = height
-                }
+                .scrollBounceBehavior(.basedOnSize)
             }
-            .frame(height: min(max(listContentHeight, 60), maxListHeight))
         }
     }
 
@@ -209,5 +206,26 @@ struct DropdownView: View {
         .controlSize(.small)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+}
+
+/// Sizes a `ScrollView` to its content in a single layout pass, capped at `maxHeight`.
+///
+/// Asked for its ideal size, a `ScrollView` reports its content's height, so measuring the
+/// scroll view with an unspecified height gives the list's true height without a `GeometryReader`
+/// or a `@State` round trip. Below the cap the list shows in full; above it the scroll view is
+/// pinned to the cap and scrolls. Either way the height is settled before the popover window
+/// reads it, which is what keeps the window from being sized for the previous content.
+private struct ContentHeightCappedLayout: Layout {
+    let maxHeight: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let scrollView = subviews.first else { return .zero }
+        let ideal = scrollView.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil))
+        return CGSize(width: proposal.width ?? ideal.width, height: min(ideal.height, maxHeight))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, anchor: .topLeading, proposal: ProposedViewSize(bounds.size))
     }
 }
