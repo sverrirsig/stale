@@ -38,13 +38,29 @@ struct DropdownView: View {
                 ProgressView()
                     .controlSize(.small)
             } else if let lastRefresh = store.lastRefresh {
-                Text("Updated \(lastRefresh, style: .relative) ago")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                TimelineView(.everyMinute) { context in
+                    Text(Self.refreshLabel(lastRefresh, now: context.date))
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+
+    /// "Updated just now", then whole minutes, hours, and days. Seconds are noise.
+    static func refreshLabel(_ lastRefresh: Date, now: Date) -> String {
+        let minutes = Int(max(0, now.timeIntervalSince(lastRefresh)) / 60)
+        switch minutes {
+        case 0: return "Updated just now"
+        case 1: return "Updated 1 minute ago"
+        case ..<60: return "Updated \(minutes) minutes ago"
+        case ..<120: return "Updated 1 hour ago"
+        case ..<(24 * 60): return "Updated \(minutes / 60) hours ago"
+        case ..<(48 * 60): return "Updated 1 day ago"
+        default: return "Updated \(minutes / (24 * 60)) days ago"
+        }
     }
 
     // MARK: - Banners
@@ -138,9 +154,6 @@ struct DropdownView: View {
             Text(tier.label.uppercased())
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.secondary)
-            Text("· \(store.thresholds.rangeDescription(for: tier))")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
             Spacer()
             Text("\(count)")
                 .font(.caption2)

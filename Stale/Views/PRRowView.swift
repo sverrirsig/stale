@@ -51,9 +51,13 @@ struct PRRowView: View {
                         .font(.system(.title3, design: .rounded).weight(.semibold))
                         .monospacedDigit()
                         .foregroundStyle(tier.color)
-                    Text(secondaryLabel)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                    // "4d" over "4d idle" says the same thing twice; only show the other
+                    // clock when it disagrees.
+                    if secondaryDays != primaryDays {
+                        Text(secondaryLabel)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
                 }
             }
             .padding(.horizontal, 12)
