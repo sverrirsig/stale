@@ -213,7 +213,17 @@ struct GitHubClient: Sendable {
           repository { nameWithOwner }
           reviewDecision
           commits(last: 1) {
-            nodes { commit { statusCheckRollup { state } } }
+            nodes { commit { statusCheckRollup {
+              state
+              contexts(first: 100) {
+                totalCount
+                nodes {
+                  __typename
+                  ... on CheckRun { conclusion }
+                  ... on StatusContext { state }
+                }
+              }
+            } } }
           }
         }
       }
@@ -267,7 +277,19 @@ private struct PullRequestNode: Decodable {
     struct Commits: Decodable {
         struct Node: Decodable {
             struct Commit: Decodable {
-                struct Rollup: Decodable { let state: String }
+                struct Rollup: Decodable {
+                    struct Contexts: Decodable {
+                        /// One check run or commit status; the union flattens to optional fields.
+                        struct Context: Decodable {
+                            let conclusion: String?
+                            let state: String?
+                        }
+                        let totalCount: Int
+                        let nodes: [Context?]
+                    }
+                    let state: String
+                    let contexts: Contexts?
+                }
                 let statusCheckRollup: Rollup?
             }
             let commit: Commit
@@ -303,8 +325,21 @@ private struct PullRequestNode: Decodable {
             updatedAt: updatedAt,
             isDraft: isDraft ?? false,
             reviewStatus: Self.reviewStatus(from: reviewDecision),
-            ciStatus: Self.ciStatus(from: commits?.nodes.first?.commit.statusCheckRollup?.state)
+            ciStatus: Self.ciStatus(from: commits?.nodes.first?.commit.statusCheckRollup?.state),
+            checks: Self.checkSummary(from: commits?.nodes.first?.commit.statusCheckRollup?.contexts)
         )
+    }
+
+    /// Counts anything GitHub itself treats as not-a-failure (success, neutral, skipped) as passed.
+    private static func checkSummary(from contexts: Commits.Node.Commit.Rollup.Contexts?) -> CheckSummary? {
+        guard let contexts, contexts.totalCount > 0 else { return nil }
+        let passed = contexts.nodes.compactMap { $0 }.filter { context in
+            switch context.conclusion ?? context.state {
+            case "SUCCESS", "NEUTRAL", "SKIPPED": return true
+            default: return false
+            }
+        }.count
+        return CheckSummary(passed: passed, total: contexts.totalCount)
     }
 
     private static func reviewStatus(from decision: String?) -> ReviewStatus {

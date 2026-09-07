@@ -109,19 +109,28 @@ struct PRRowView: View {
         }
     }
 
+    /// "3/5" with a badge: a green check on a solid disc when everything has passed, a red X
+    /// when something failed, a neutral clock while checks are still running.
     @ViewBuilder
     private var ciIndicator: some View {
-        switch pullRequest.ciStatus {
-        case .passing:
-            Label("CI passing", systemImage: "checkmark.seal")
-                .foregroundStyle(.green)
-        case .failing:
-            Label("CI failing", systemImage: "xmark.octagon")
-                .foregroundStyle(.red)
-        case .pending:
-            Label("CI running", systemImage: "circle.dotted")
-        case .unknown:
-            EmptyView()
+        if let checks = pullRequest.checks {
+            let allPassed = checks.passed == checks.total
+            let failed = pullRequest.ciStatus == .failing
+            let tint: Color = allPassed ? .green : failed ? .red : .secondary
+            Label {
+                Text("\(checks.passed)/\(checks.total)")
+                    .monospacedDigit()
+            } icon: {
+                if allPassed || failed {
+                    Image(systemName: allPassed ? "checkmark.circle.fill" : "xmark.circle.fill")
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(tint, Color(nsColor: .controlBackgroundColor))
+                } else {
+                    Image(systemName: "clock")
+                }
+            }
+            .foregroundStyle(tint)
+            .help("\(checks.passed) of \(checks.total) checks passed")
         }
     }
 

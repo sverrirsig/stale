@@ -16,6 +16,15 @@ struct PullRequest: Identifiable, Codable, Hashable {
     let isDraft: Bool
     let reviewStatus: ReviewStatus
     let ciStatus: CIStatus
+    /// Check runs and commit statuses on the head commit. Optional so caches written by
+    /// builds that didn't fetch it still decode.
+    let checks: CheckSummary?
+}
+
+/// How many of the head commit's checks have passed.
+struct CheckSummary: Codable, Hashable {
+    let passed: Int
+    let total: Int
 }
 
 enum ReviewStatus: String, Codable, Hashable {
