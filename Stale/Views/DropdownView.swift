@@ -6,6 +6,9 @@ struct DropdownView: View {
     @Environment(SettingsStore.self) private var settings
     @Environment(\.openSettings) private var openSettings
 
+    /// Measured height of the whole popover, handed to the window fitter below.
+    @State private var rootHeight: CGFloat = 0
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -16,7 +19,12 @@ struct DropdownView: View {
             footer
         }
         .frame(width: 380)
-        .background(PopoverTopAnchor())
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.height
+        } action: { height in
+            rootHeight = height
+        }
+        .background(PopoverWindowFitter(contentHeight: rootHeight))
     }
 
     // MARK: - Header
@@ -230,67 +238,39 @@ private struct ContentHeightCappedLayout: Layout {
     }
 }
 
-/// Keeps the popover hanging from the menu bar when its content changes height.
+/// Shrinks the popover window back down when its content gets shorter.
 ///
-/// `MenuBarExtra(.window)` resizes its window around the centre, so when the list gets
-/// shorter (hiding an organisation in Settings, PRs merging) the top edge drops by half the
-/// change and the popover floats below the menu bar with nothing above it. The resize usually
-/// happens while the popover is closed, and the window is not re-anchored when it reopens, so
-/// the drift is fixed here on every height change whether or not the window is on screen.
+/// `MenuBarExtra(.window)` grows its window to fit taller content but never shrinks it: after
+/// hiding an organisation the window keeps its old height, hangs from the menu bar as before,
+/// and SwiftUI centres the now-shorter content inside it. The visible popover then floats
+/// below the menu bar with a stretch of transparent window above it (measured live: a 317pt
+/// window around 145pt of content). Nothing about the window changes, so this cannot be fixed
+/// by reacting to window events; the content height has to be pushed onto the window.
 ///
-/// The anchor is the top edge last seen while the window was visible with its height
-/// unchanged: that is where MenuBarExtra put it. Repositioning on show (a different screen,
-/// the status item moving) arrives as a move with the height unchanged, so it updates the
-/// anchor instead of being undone.
-private struct PopoverTopAnchor: NSViewRepresentable {
-    func makeNSView(context: Context) -> AnchorView { AnchorView() }
-    func updateNSView(_ view: AnchorView, context: Context) {}
+/// `fittingSize` on the hosting view reports zero, so the height comes from SwiftUI's own
+/// measurement of the root view. Shrink only: growth already works, and resizing both ways
+/// would fight SwiftUI's layout.
+private struct PopoverWindowFitter: NSViewRepresentable {
+    let contentHeight: CGFloat
 
-    final class AnchorView: NSView {
-        private var lastFrame: NSRect?
-        /// Top edge (in screen coordinates) the window should keep.
-        private var anchorTop: CGFloat?
-        private var observedWindow: NSWindow?
+    func makeNSView(context: Context) -> FitterView { FitterView() }
 
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            if let observedWindow {
-                NotificationCenter.default.removeObserver(self, name: nil, object: observedWindow)
-            }
-            observedWindow = window
-            anchorTop = nil
-            lastFrame = window?.frame
-            guard let window else { return }
-            for name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification,
-                         NSWindow.didChangeOcclusionStateNotification, NSWindow.didBecomeKeyNotification] {
-                NotificationCenter.default.addObserver(self, selector: #selector(windowChanged), name: name, object: window)
-            }
-            noteAnchor(window)
-        }
+    func updateNSView(_ view: FitterView, context: Context) {
+        view.contentHeight = contentHeight
+        // No window during the first update, and SwiftUI is mid-layout; let it settle first.
+        DispatchQueue.main.async { view.shrinkWindowToFit() }
+    }
 
-        deinit {
-            NotificationCenter.default.removeObserver(self)
-        }
+    final class FitterView: NSView {
+        var contentHeight: CGFloat = 0
 
-        @objc private func windowChanged(_ note: Notification) {
-            guard let window, window == note.object as? NSWindow else { return }
-            defer { lastFrame = window.frame }
+        func shrinkWindowToFit() {
+            guard let window, contentHeight > 0 else { return }
             var frame = window.frame
-            let heightChanged = lastFrame.map { abs(frame.height - $0.height) > 0.5 } ?? false
-            guard heightChanged else {
-                noteAnchor(window)
-                return
-            }
-            guard let anchorTop, abs(frame.maxY - anchorTop) > 0.5 else { return }
-            frame.origin.y = anchorTop - frame.height
+            guard frame.height - contentHeight > 1 else { return }
+            frame.origin.y = frame.maxY - contentHeight
+            frame.size.height = contentHeight
             window.setFrame(frame, display: true)
-        }
-
-        /// Trust the window's position only while it is on screen; hidden windows can be resized
-        /// around their centre before anything has placed them.
-        private func noteAnchor(_ window: NSWindow) {
-            guard window.isVisible else { return }
-            anchorTop = window.frame.maxY
         }
     }
 }
