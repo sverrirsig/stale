@@ -233,21 +233,23 @@ private struct ContentHeightCappedLayout: Layout {
 /// Keeps the popover hanging from the menu bar when its content changes height.
 ///
 /// `MenuBarExtra(.window)` resizes its window around the centre, so when the list gets
-/// shorter (hiding an organisation, PRs merging) the top edge drops by half the change and
-/// the popover floats below the menu bar with nothing above it. Growth is clamped by the
-/// screen so it looks fine; shrinking is not. Whenever the window changes height while it is
-/// on screen, put the top edge back where it was.
+/// shorter (hiding an organisation in Settings, PRs merging) the top edge drops by half the
+/// change and the popover floats below the menu bar with nothing above it. The resize usually
+/// happens while the popover is closed, and the window is not re-anchored when it reopens, so
+/// the drift is fixed here on every height change whether or not the window is on screen.
 ///
-/// Repositioning on show (a different screen, the status item moving) arrives as a move with
-/// the height unchanged, so it passes through untouched.
+/// The anchor is the top edge last seen while the window was visible with its height
+/// unchanged: that is where MenuBarExtra put it. Repositioning on show (a different screen,
+/// the status item moving) arrives as a move with the height unchanged, so it updates the
+/// anchor instead of being undone.
 private struct PopoverTopAnchor: NSViewRepresentable {
     func makeNSView(context: Context) -> AnchorView { AnchorView() }
     func updateNSView(_ view: AnchorView, context: Context) {}
 
     final class AnchorView: NSView {
-        /// The window frame at the last notification, and whether the window was visible then.
         private var lastFrame: NSRect?
-        private var lastVisible = false
+        /// Top edge (in screen coordinates) the window should keep.
+        private var anchorTop: CGFloat?
         private var observedWindow: NSWindow?
 
         override func viewDidMoveToWindow() {
@@ -256,12 +258,14 @@ private struct PopoverTopAnchor: NSViewRepresentable {
                 NotificationCenter.default.removeObserver(self, name: nil, object: observedWindow)
             }
             observedWindow = window
+            anchorTop = nil
+            lastFrame = window?.frame
             guard let window else { return }
             for name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification,
                          NSWindow.didChangeOcclusionStateNotification, NSWindow.didBecomeKeyNotification] {
                 NotificationCenter.default.addObserver(self, selector: #selector(windowChanged), name: name, object: window)
             }
-            record(window)
+            noteAnchor(window)
         }
 
         deinit {
@@ -270,19 +274,23 @@ private struct PopoverTopAnchor: NSViewRepresentable {
 
         @objc private func windowChanged(_ note: Notification) {
             guard let window, window == note.object as? NSWindow else { return }
-            defer { record(window) }
-            guard let last = lastFrame, lastVisible, window.isVisible else { return }
+            defer { lastFrame = window.frame }
             var frame = window.frame
-            let heightChanged = abs(frame.height - last.height) > 0.5
-            let topMoved = abs(frame.maxY - last.maxY) > 0.5
-            guard heightChanged, topMoved else { return }
-            frame.origin.y = last.maxY - frame.height
+            let heightChanged = lastFrame.map { abs(frame.height - $0.height) > 0.5 } ?? false
+            guard heightChanged else {
+                noteAnchor(window)
+                return
+            }
+            guard let anchorTop, abs(frame.maxY - anchorTop) > 0.5 else { return }
+            frame.origin.y = anchorTop - frame.height
             window.setFrame(frame, display: true)
         }
 
-        private func record(_ window: NSWindow) {
-            lastFrame = window.frame
-            lastVisible = window.isVisible
+        /// Trust the window's position only while it is on screen; hidden windows can be resized
+        /// around their centre before anything has placed them.
+        private func noteAnchor(_ window: NSWindow) {
+            guard window.isVisible else { return }
+            anchorTop = window.frame.maxY
         }
     }
 }
